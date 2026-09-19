@@ -1,0 +1,8 @@
+.DS_Store
+__pycache__/
+.venv/
+# Keep all real grading inputs and outputs outside this repository.
+private/
+submissions/
+grades/
+feedback/

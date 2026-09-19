@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lab Grader"
+  short_description: "Grade labs with justified scores and useful feedback"
+  default_prompt: "Use $lab-grader to grade lab submissions using the assignment, rubric, instructor guidance, and course notes."
