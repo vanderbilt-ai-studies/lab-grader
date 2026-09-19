@@ -6,3 +6,8 @@ private/
 submissions/
 grades/
 feedback/
+
+# Local pipeline runtime data must never enter this public repository.
+FERPA-sensitive/
+grading/
+labs/**/grading/

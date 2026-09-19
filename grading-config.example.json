@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "host": "brightspace.example.edu",
+  "course_scope": "example-course-fall-2026",
+  "le_version": "1.93",
+  "test_course": false,
+  "attempt_policy": "latest",
+  "sections": [
+    {
+      "org_unit_id": "100",
+      "folder_id": "200",
+      "course_name": "Exact Brightspace course name",
+      "assignment_name": "Exact Brightspace assignment name"
+    }
+  ],
+  "criteria": [
+    {"id": "comparison", "label": "Comparison", "possible": 6},
+    {"id": "explanation", "label": "Explanation", "possible": 4}
+  ]
+}

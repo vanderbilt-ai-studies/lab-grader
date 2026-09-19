@@ -7,9 +7,15 @@ description: Grade lab submissions against an assignment, rubric, and instructor
 
 Help students understand their grade and how to improve their next lab. Produce proposed grades and student-facing feedback for instructor review. Publishing grades or sending feedback requires an explicit user request.
 
+## Identity boundary
+
+Grade only submissions that have been released by the local anonymization workflow. The coordinator and workers must not read identity maps, rosters, raw submissions, private review files, upload receipts, or named Brightspace pages. Do not search the wider submissions folder. If a packet contains an apparent identity, flag it for local review without repeating the identifying text.
+
+When inputs contain `packet.json`, read [the pipeline contract](references/pipeline.md). Use its stable course key, exact rubric IDs, and package digest, and return the specified result JSON in addition to readable feedback. The instructor accepts residual identification risk from automatic text redaction; do not impose human review on every supported submission. Held visual or unreadable evidence still needs local review. Do not penalize redaction placeholders or missing evidence removed during preprocessing.
+
 ## Inputs
 
-Read the assignment, rubric, instructor guidance document, student submissions, and relevant course notes. Use the supplied guidance document; [guidance-template.md](guidance-template.md) is an optional starting point for the instructor, not an additional grading policy.
+Read the assignment, rubric, instructor guidance document, released student submissions, and relevant course notes. Use the supplied guidance document; [guidance-template.md](guidance-template.md) is an optional starting point for the instructor, not an additional grading policy.
 
 Before grading, confirm the rubric criteria and point totals, identify which files belong to each submission, and locate the applicable notes. Ask for missing assignment, rubric, or guidance information when it prevents reliable grading. If notes are unavailable, grade what the evidence supports and flag the missing references; never invent a day, section, or link.
 
