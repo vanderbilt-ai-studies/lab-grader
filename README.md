@@ -8,7 +8,9 @@ Parallel grading workers use Sol at medium reasoning in Codex, or an available S
 
 Install this folder as a skill in your agent environment. For Codex, clone it into `~/.codex/skills/lab-grader`, or symlink that location to your editable checkout. Then request:
 
-> Use $lab-grader to grade these lab submissions. The assignment is at [path], rubric at [path], instructor guidance at [path], and course notes at [path]. Released anonymous packets are in [lab submissions/anonymous folder]. Save proposed grades and feedback in [private output folder].
+> Use $lab-grader to download, prepare, and grade Lab 2 for both sections, then make the TA review package. The assignment is at [path], rubric at [path], instructor guidance at [path], and course notes at [path].
+
+For a configured Brightspace assignment, the coordinator runs download and preparation automatically before starting grading workers, then validates results and builds the TA review package. You do not need to run the pipeline commands yourself. Requests to review existing results preserve the existing submission snapshot.
 
 Each student gets rubric scores, a reason for every deduction, and specific suggestions for the next lab. When a submission reveals a conceptual misunderstanding, feedback includes a short explanation, worked example, practice check, and a verified notes reference by day and section. The instructor reviews the results before release.
 

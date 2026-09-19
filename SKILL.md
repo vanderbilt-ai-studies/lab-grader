@@ -11,7 +11,7 @@ Help students understand their grade and how to improve their next lab. Produce 
 
 Grade only submissions that have been released by the local anonymization workflow. The coordinator and workers must not read identity maps, rosters, raw submissions, private review files, upload receipts, or named Brightspace pages. Do not search the wider submissions folder. If a packet contains an apparent identity, flag it for local review without repeating the identifying text.
 
-When inputs contain `packet.json`, read [the pipeline contract](references/pipeline.md). Use its stable course key, exact rubric IDs, and package digest, and return the specified result JSON in addition to readable feedback. The instructor accepts residual identification risk from automatic text redaction; do not impose human review on every supported submission. Held visual or unreadable evidence still needs local review. Do not penalize redaction placeholders or missing evidence removed during preprocessing.
+When grading a configured Brightspace assignment or inputs containing `packet.json`, read [the pipeline contract](references/pipeline.md). Use its stable course key, exact rubric IDs, and package digest, and return the specified result JSON in addition to readable feedback. The instructor accepts residual identification risk from automatic text redaction; do not impose human review on every supported submission. Held visual or unreadable evidence still needs local review. Do not penalize redaction placeholders or missing evidence removed during preprocessing.
 
 ## Inputs
 
@@ -20,6 +20,14 @@ Read the assignment, rubric, instructor guidance document, released student subm
 Before grading, confirm the rubric criteria and point totals, identify which files belong to each submission, and locate the applicable notes. Ask for missing assignment, rubric, or guidance information when it prevents reliable grading. If notes are unavailable, grade what the evidence supports and flag the missing references; never invent a day, section, or link.
 
 Apply explicit instructor clarifications consistently. If the assignment, rubric, and guidance conflict in a way that changes a score, flag that decision for the instructor instead of silently choosing a rule. Do not add expectations, penalties, or criteria that these materials do not establish.
+
+## Prepare each requested assignment automatically
+
+The coordinator runs the installed local pipeline before grading a Brightspace assignment: `check-config`, `download`, `prepare`, then `status`, each with `--lab <lab-slug>` from the course project. Check success between steps. Create/check the non-sensitive assignment configuration from verified course information and the supplied rubric; ask only for missing information. A request to grade the specified assignment authorizes this preparation without separate per-step confirmation. Read only the scripts' counts/status output, then released anonymous packets.
+
+Run preparation once per requested assignment, not per worker, and never refresh packets while grading them. Prepare multiple requested assignments sequentially; grade released packets in parallel. Stop dependent steps on a failed command, reporting its fixed code without private-file inspection. Continue with released work when other submissions are held. If the user requests only review of existing results or explicitly supplied packets, keep that snapshot and skip fresh downloads.
+
+After grading checks, run `validate` and `export-review` to deliver the TA review package. Publishing or sending still follows the user's explicit scope. The commands and result contract are in [the pipeline reference](references/pipeline.md).
 
 ## Parallel grading
 

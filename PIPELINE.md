@@ -41,6 +41,12 @@ does not share the identity mapping. No send/share operation is automated here.
 
 ## Setup once per assignment
 
+The agent handles setup and preparation when you ask it to grade an assignment.
+For example: **"Use lab-grader to download, prepare, and grade Lab 2 for both
+sections, then make the TA review package."** You do not need to run the commands
+below yourself; they document what the agent runs and remain available for manual
+troubleshooting. This is part of the requested grading task, not a scheduled job.
+
 Use macOS/Linux with Python 3.10+ and `requests`; `PyMuPDF` adds PDF text extraction. The current
 course Python environment already has both. The script must live in the course's
 `ferpa-safe/scripts/`: its private root is derived from that location, never passed
@@ -49,7 +55,13 @@ client's own configured authentication. Tokens are never printed or supplied in
 command arguments. `AUTH_UNAVAILABLE` means that API login needs renewal; it says
 nothing about whether an unrelated browser session is logged in.
 
-Copy `lab-grading-config.example.json` to `labs/<lab>/grading-config.json`. Replace
+The agent creates or checks `labs/<lab>/grading-config.json` from the example
+configuration and verified course/assignment information. It asks only for missing
+scope, credentials, or policy decisions it cannot establish from the supplied
+materials. It does not need separate permission for each read-only download or
+local preparation step already covered by the grading request.
+
+For manual setup, copy `lab-grading-config.example.json` to `labs/<lab>/grading-config.json`. Replace
 the example IDs, exact course/assignment names, and criteria with the actual ones.
 Add a section entry for each authorized shell; each has its own assignment ID.
 Use the published rubric's criterion IDs, labels, and possible points. They are
@@ -65,7 +77,9 @@ authorized disposable course with synthetic learners and submissions.
 
 ## Download and prepare
 
-Run these from the course project, replacing `lab-slug` with the lab folder name:
+At the beginning of each requested assignment grading run, the coordinating agent
+runs these commands from the course project in order, substituting the lab folder
+name. It checks each command's success before starting the next:
 
 ```sh
 python3 ferpa-safe/scripts/lab_pipeline.py check-config --lab lab-slug
@@ -73,6 +87,19 @@ python3 ferpa-safe/scripts/lab_pipeline.py download --lab lab-slug
 python3 ferpa-safe/scripts/lab_pipeline.py prepare --lab lab-slug
 python3 ferpa-safe/scripts/lab_pipeline.py status --lab lab-slug
 ```
+
+The agent receives only counts and fixed status codes from these commands. After
+successful preparation it reads only the released anonymous packets, grades them
+with parallel workers, validates the results, and builds the TA review archive.
+Held submissions are reported by count; they do not prevent grading released work.
+If a command fails, the agent stops that assignment's dependent steps and reports
+the fixed error code without opening private files or enabling verbose output.
+
+Download/preparation happens once per assignment run, never separately in each
+grading worker. For multiple requested assignments, prepare them sequentially;
+grading workers may run in parallel. Do not refresh an assignment while its workers
+are reading packets. When the user asks only to review existing results or to use
+an existing release, preserve that snapshot and skip downloading/preparing it again.
 
 The downloader reads all pages, matches identity by the Brightspace user ID, and
 keeps raw records in the private folder. It does not match by name or filename.
@@ -119,7 +146,7 @@ must not claim human review or run this override on their own.
 
 ## Grade and review
 
-Give the grading skill only `submissions/anonymous/`, the public assignment/rubric,
+The coordinator gives grading workers only `submissions/anonymous/`, the public assignment/rubric,
 instructor guidance and course notes. Start fresh worker contexts; never include
 the private mapping, originals, API envelopes, or browser evaluation screens.
 Use `packet.json` as the source of the key, package digest and exact criterion IDs.
@@ -130,6 +157,10 @@ The skill's `references/pipeline.md` specifies the result format. Put each resul
 python3 ferpa-safe/scripts/lab_pipeline.py validate --lab lab-slug
 python3 ferpa-safe/scripts/lab_pipeline.py export-review --lab lab-slug
 ```
+
+The coordinator runs those two commands after completing its grading checks; you
+receive the review package without having to run another command. Posting grades,
+publishing feedback, or sending the archive still follows your requested scope.
 
 Validation checks package identity, criterion coverage, evidence for each score,
 reasons for deductions, arithmetic, completeness, and known identifiers. It
