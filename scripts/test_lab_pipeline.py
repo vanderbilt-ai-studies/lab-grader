@@ -73,6 +73,12 @@ class FakeAPI:
 
 
 class PipelineTests(unittest.TestCase):
+    def test_inflected_feedback_words_do_not_remove_full_name_check(self):
+        redactor=lp.Redactor({'synthetic':{'FirstName':'Zyra','LastName':'Marks'}},'synthetic','S-'+'a'*32)
+        redactor.check_result('The log marks correctness for each row.')
+        with self.assertRaisesRegex(lp.Stop,'RESULT_NEEDS_REDACTION_REVIEW'):
+            redactor.check_result('Zyra Marks completed the report.')
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="lab-grader-test-", dir=TEST_TMP)
         self.addCleanup(self.tmp.cleanup)
@@ -131,12 +137,59 @@ class PipelineTests(unittest.TestCase):
         second.download(self.api)
         self.assertEqual(second.records()[0]["key"], self.key)
 
+    def test_release_text_checks_exact_bytes_without_newline_translation(self):
+        self.ready()
+        self.pipe.release(self.record, "Synthetic line\rsecond line\r\nthird line", "automatic")
+        packet=lp.read_json(self.pipe.released / self.key / "packet.json")
+        self.result["package_digest"]=packet["package_digest"]
+        self.write_result()
+        self.pipe.validate()
+        lp.save(self.pipe.released / self.key / "submission.txt", packet["submission"].replace("\r", "").encode())
+        with self.assertRaisesRegex(lp.Stop,"RELEASE_CHANGED"):
+            self.pipe.validate()
+
     def test_new_course_has_different_id(self):
         self.ready()
         lp.save(self.root / "labs/lab-two/grading-config.json", config("another-course"))
         second = lp.Pipeline(self.root, "lab-two")
         second.download(self.api)
         self.assertNotEqual(second.records()[0]["key"], self.key)
+
+    def test_provisional_review_export_does_not_enable_upload(self):
+        self.ready()
+        self.result["status"] = "needs_review"
+        self.write_result()
+        with self.assertRaisesRegex(lp.Stop, "PROVISIONAL_RESULT"):
+            self.pipe.validate()
+        self.pipe.export_review(include_provisional=True)
+        html = (self.pipe.results / self.key / "feedback.html").read_text()
+        self.assertIn("PROVISIONAL", html)
+        with self.assertRaisesRegex(lp.Stop, "PROVISIONAL_RESULT"):
+            self.pipe.plan_upload(self.api)
+        self.assertEqual(self.api.posts, 0)
+
+    def test_generated_feedback_allows_ordinary_prose_but_not_full_names(self):
+        redactor = lp.Redactor({"1": {"FirstName": "You", "LastName": "Valenwood"}}, "1", "S-"+"a"*32)
+        redactor.check_result("You can check the result.")
+        with self.assertRaisesRegex(lp.Stop, "RESULT_NEEDS_REDACTION_REVIEW"):
+            redactor.check_result("You Valenwood scored eight points.")
+        cleaned, _ = redactor.clean("You Valenwood")
+        self.assertNotIn("Valenwood", cleaned)
+
+    def test_visual_hash_change_blocks_review_and_upload(self):
+        self.ready()
+        path = self.pipe.state / "releases" / (self.key + ".json")
+        release = lp.read_json(path)
+        packet = release["packet"]
+        packet["visuals"] = [{"path":"page-001.png", "sha256":lp.digest(b"synthetic-image")}]
+        packet["package_digest"] = lp.digest({k:v for k,v in packet.items() if k != "package_digest"})
+        lp.save(path,release)
+        lp.save(self.pipe.released / self.key / "packet.json",packet)
+        lp.save(self.pipe.released / self.key / "page-001.png",b"changed-image")
+        self.result["package_digest"] = packet["package_digest"]
+        self.write_result()
+        with self.assertRaisesRegex(lp.Stop,"RELEASE_CHANGED"):
+            self.pipe.export_review(include_provisional=True)
 
     def test_missing_roster_identity_is_held_without_blocking_download(self):
         self.api.people = self.api.people[1:]

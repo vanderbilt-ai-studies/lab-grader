@@ -36,10 +36,12 @@ reruns; new submission revisions invalidate stale grades.
 
 ## Allowed grading inputs
 
-Read only `labs/<lab>/submissions/anonymous/<key>/packet.json` and the supplied
-assignment, rubric, guidance and notes. Never search the broader submissions
+Read only `labs/<lab>/submissions/anonymous/<key>/packet.json`, generated page
+images explicitly listed in its `visuals` manifest, and the supplied assignment,
+rubric, guidance and notes. Verify each listed image hash before grading; do not
+open source files or unlisted siblings. Never search the broader submissions
 tree: older downloads may have identifying filenames. No coordinator or worker
-reads `FERPA-sensitive/`, identity maps, raw downloads, review candidates, upload
+reads `FERPA-sensitive/`, identity maps, raw downloads, private pre-release review files, upload
 receipts, classlists, named Brightspace evaluation pages, or other task histories.
 
 The `student_key` is a random course-wide review key. Do not infer or look up its
@@ -105,8 +107,13 @@ python3 ferpa-safe/scripts/lab_pipeline.py export-review --lab lab-slug
 Deliver the resulting `labs/<lab>/grading/ta-review.zip` locally. Do not tell the
 instructor to run those routine commands themselves. If validation stops because
 of a held/incomplete result, report the limitation honestly rather than inventing
-a grade. TA edits retain the key/digest and go through validation and a new upload
-plan. Sending the ZIP requires the user's authorization.
+a grade. For a local TA draft that includes unresolved assessments, use
+`export-review --lab lab-slug --include-provisional`. Provisional feedback is
+clearly labeled; ordinary validation and all uploads still reject it. The archive
+includes the packet manifest and any authorized, hash-verified page images.
+
+TA edits retain the key/digest and go through validation and a new upload plan.
+Sending the ZIP requires the user's authorization.
 
 Read-only `plan-upload` and mutating `upload --execute` are separate. A grading
 request alone does not authorize posting grades. When upload is explicitly

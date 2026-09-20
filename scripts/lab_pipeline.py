@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import fcntl
+import functools
 import hashlib
 import html
 from html.parser import HTMLParser
@@ -185,9 +186,23 @@ class Redactor:
 
     def check_result(self, value):
         text = normalize(json.dumps(value, ensure_ascii=False)).replace(self.key, "")
-        require(not self.pattern or not self.pattern.search(text), "RESULT_NEEDS_REDACTION_REVIEW")
+        # Generated feedback necessarily uses ordinary words that may also be
+        # short names (e.g. pronouns or verbs). Full names, handles outside the
+        # dictionary, emails and IDs still fail. Input redaction remains strict.
+        found = self.pattern.finditer(text) if self.pattern else []
+        require(not any(m.group().casefold() not in ordinary_prose_words() for m in found),
+                "RESULT_NEEDS_REDACTION_REVIEW")
         require(not re.search(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", text, re.I),
                 "RESULT_NEEDS_REDACTION_REVIEW")
+
+
+@functools.lru_cache(maxsize=1)
+def ordinary_prose_words():
+    words = {"you", "your", "will", "may", "mark", "marks", "marked", "labels", "boxes", "runs", "read", "high", "low", "long", "short"}
+    dictionary = Path("/usr/share/dict/words")
+    if dictionary.is_file():
+        words.update(w for w in dictionary.read_text().splitlines() if w.isalpha() and w.islower())
+    return words
 
 
 def extract(data, suffix):
@@ -565,13 +580,18 @@ class Pipeline:
         self.release(record, text, "human-reviewed")
         return {"released": 1}
 
-    def validate_result(self, record):
+    def validate_result(self, record, allow_provisional=False):
         key = record["key"]
         release = read_json(self.state / "releases" / (key + ".json"))
         require(release["revision"] == record["revision"], "STALE_RELEASE")
         packet = read_json(self.released / key / "packet.json")
         require(packet == release["packet"], "RELEASE_CHANGED")
-        require((self.released / key / "submission.txt").read_text() == packet["submission"], "RELEASE_CHANGED")
+        require((self.released / key / "submission.txt").read_bytes() == packet["submission"].encode("utf-8"), "RELEASE_CHANGED")
+        for visual in packet.get("visuals", []):
+            require(re.fullmatch(r"page-[0-9]+\.png", visual["path"]), "INVALID_VISUAL_PATH")
+            image_path = self.released / key / visual["path"]
+            no_links(image_path)
+            require(digest(image_path.read_bytes()) == visual["sha256"], "RELEASE_CHANGED")
         result_path = self.results / key / "result.json"
         no_links(result_path)
         result = read_json(result_path)
@@ -579,7 +599,10 @@ class Pipeline:
                 "RESULT_SCHEMA_MISMATCH")
         require(result.get("student_key") == key and result.get("package_digest") == packet["package_digest"],
                 "RESULT_IDENTITY_MISMATCH")
-        require(result.get("status") == "complete", "PROVISIONAL_RESULT")
+        require(result.get("status") == "complete" or
+                (allow_provisional and result.get("status") == "needs_review"), "PROVISIONAL_RESULT")
+        require(result.get("status") != "complete" or packet.get("evidence_status") != "needs_review",
+                "INCOMPLETE_EVIDENCE")
         criteria = result.get("criteria", [])
         require(len(criteria) == len(self.config["criteria"]) and
                 {c["id"] for c in criteria} == {c["id"] for c in self.config["criteria"]}, "RESULT_RUBRIC_MISMATCH")
@@ -601,7 +624,8 @@ class Pipeline:
         require(len(result["feedback"]) < 100000, "FEEDBACK_TOO_LONG")
         # Known identities stay out; course-note URLs may remain in feedback as escaped text.
         self.redactor(record).check_result(result)
-        sections = [f"Score: {total:g} / {self.possible:g}", "", "Rubric breakdown"]
+        provisional = " (PROVISIONAL — instructor review required)" if result["status"] == "needs_review" else ""
+        sections = [f"Score: {total:g} / {self.possible:g}" + provisional, "", "Rubric breakdown"]
         for spec, criterion in rows:
             parts = [f'{spec["label"]}: {criterion["earned"]:g} / {spec["possible"]:g}',
                      "Evidence: " + criterion["evidence"]]
@@ -619,13 +643,13 @@ class Pipeline:
         return result, {"Score": total, "Feedback": {"Text": text, "Html": body},
                         "RubricAssessments": [], "IsGraded": False, "GradedSymbol": None}
 
-    def validate(self):
+    def validate(self, allow_provisional=False):
         records = {r["key"]: r for r in self.records()}
         paths = list(self.results.glob("*/result.json"))
         require(paths, "NO_RESULTS")
         for path in paths:
             require(path.parent.name in records, "UNKNOWN_RESULT_KEY")
-            self.validate_result(records[path.parent.name])
+            self.validate_result(records[path.parent.name], allow_provisional=allow_provisional)
         return {"validated": len(paths)}
 
     def status(self):
@@ -746,18 +770,23 @@ class Pipeline:
             save(proof, verified)
         return {"verified_uploads": completed}
 
-    def export_review(self):
-        self.validate()
+    def export_review(self, include_provisional=False):
+        self.validate(allow_provisional=include_provisional)
         out = self.labroot / "grading" / "ta-review.zip"
         temp = io.BytesIO()
         with zipfile.ZipFile(temp, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("README.txt", "Instructor/TA review only. No grades have been posted by this export.\n"
+                              "Entries marked needs_review are provisional; preserve keys and digests when editing.\n")
             for record in self.records():
                 key = record["key"]
                 if not (self.results / key / "result.json").exists():
                     continue
-                result, _ = self.validate_result(record)
+                result, _ = self.validate_result(record, allow_provisional=include_provisional)
                 packet = read_json(self.released / key / "packet.json")
                 archive.writestr(key + "/submission.txt", packet["submission"])
+                archive.writestr(key + "/packet.json", json.dumps(packet, indent=2))
+                for visual in packet.get("visuals", []):
+                    archive.writestr(key + "/" + visual["path"], (self.released / key / visual["path"]).read_bytes())
                 archive.writestr(key + "/result.json", json.dumps(result, indent=2))
                 archive.writestr(key + "/feedback.html", (self.results / key / "feedback.html").read_bytes())
         save(out, temp.getvalue())
@@ -787,6 +816,7 @@ def main(argv=None):
     parser.add_argument("--human-reviewed", action="store_true")
     parser.add_argument("--publish", action="store_true", help="Only for plan-upload; otherwise draft")
     parser.add_argument("--execute", action="store_true", help="Required for upload; applies saved plan")
+    parser.add_argument("--include-provisional", action="store_true", help="TA export only; never permits uploading provisional grades")
     args = parser.parse_args(argv)
     os.umask(0o077)
     require(SLUG_RE.fullmatch(args.lab), "INVALID_LAB")
@@ -805,7 +835,7 @@ def main(argv=None):
         if args.command == "validate":
             return pipe.validate()
         if args.command == "export-review":
-            return pipe.export_review()
+            return pipe.export_review(args.include_provisional)
         if args.command == "upload":
             require(args.execute, "EXECUTE_REQUIRED")
         api = Brightspace(pipe.config["host"])
