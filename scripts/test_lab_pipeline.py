@@ -138,6 +138,31 @@ class PipelineTests(unittest.TestCase):
         second.download(self.api)
         self.assertNotEqual(second.records()[0]["key"], self.key)
 
+    def test_missing_roster_identity_is_held_without_blocking_download(self):
+        self.api.people = self.api.people[1:]
+        self.assertEqual(self.pipe.download(self.api), {"downloaded": 1})
+        self.assertEqual(self.pipe.prepare(), {"released": 0, "held": 1})
+        record = self.pipe.records()[0]
+        self.assertFalse(record["identity_verified"])
+        self.assertEqual(self.pipe.status()["hold_reasons"], {"IDENTITY_LOOKUP_INCOMPLETE": 1})
+        lp.save(self.pipe.state / "review" / record["key"] / "submission.txt", b"Reviewed text")
+        with self.assertRaisesRegex(lp.Stop, "IDENTITY_LOOKUP_INCOMPLETE"):
+            self.pipe.release_reviewed(record["key"])
+        # A retry must not treat envelope display-name aliases as verified identity.
+        self.pipe.download(self.api)
+        self.assertEqual(self.pipe.prepare(), {"released": 0, "held": 1})
+
+    def test_roster_resolution_preserves_key_and_allows_release(self):
+        person = self.api.people.pop(0)
+        self.pipe.download(self.api)
+        key = self.pipe.records()[0]["key"]
+        self.pipe.prepare()
+        self.api.people.append(person)
+        self.pipe.download(self.api)
+        self.assertEqual(self.pipe.records()[0]["key"], key)
+        self.assertEqual(self.pipe.prepare(), {"released": 1, "held": 0})
+        self.assertEqual(self.pipe.status()["hold_reasons"], {})
+
     def test_redaction_boundaries_case_variants_and_unicode(self):
         redactor = lp.Redactor({"401": self.api.people[0]}, "401", "S-" + "a" * 32)
         text, _ = redactor.clean("ZYRA\u200b VALENWOOD, zvalen; Valenwoodian. 9000401\nwww.example.invalid/account")

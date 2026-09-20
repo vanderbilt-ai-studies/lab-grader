@@ -401,6 +401,7 @@ class Pipeline:
                 uid = identifier(person["Identifier"])
                 stored = identity["people"].setdefault(uid, {"key": "S-" + uuid.uuid4().hex, "aliases": []})
                 stored["aliases"] = sorted(set(stored["aliases"]) | aliases(person))
+                stored["verified"] = bool(stored["aliases"])
             entities = api.collection(self.base(section) + "/submissions/paged/")
             save(runroot / f"section-{section_index}-envelopes.json", entities)
             for entity in entities:
@@ -408,7 +409,12 @@ class Pipeline:
                 uid = identifier(entity["Entity"]["EntityId"])
                 if not entity.get("Submissions"):
                     continue
-                require(uid in identity["people"] and identity["people"][uid]["aliases"], "IDENTITY_LOOKUP_INCOMPLETE")
+                # Historical submissions can outlive enrollment. Keep them private
+                # for identity review without blocking the rest of the assignment.
+                if uid not in identity["people"]:
+                    identity["people"][uid] = {"key": "S-" + uuid.uuid4().hex,
+                                                "aliases": [], "verified": False}
+                verified = bool(identity["people"][uid]["aliases"]) and identity["people"][uid].get("verified", True)
                 require(uid not in seen, "DUPLICATE_STUDENT_ACROSS_SECTIONS")
                 seen.add(uid)
                 person = identity["people"][uid]
@@ -431,6 +437,7 @@ class Pipeline:
                         save(path, data)
                         files[(sid, fid)] = {"relative": str(path.relative_to(self.state)), "sha256": digest(data)}
                 record = {"key": key, "user_id": uid, "section": section, "folder": folder,
+                          "identity_verified": verified,
                           "entity": entity, "revision": revision(entity, self.config["attempt_policy"]),
                           "files": {f"{sid}/{fid}": value for (sid, fid), value in files.items()}}
                 save(runroot / key / "record.json", record)
@@ -481,6 +488,14 @@ class Pipeline:
         released, held = 0, 0
         for record in records:
             key, pieces, reasons = record["key"], [], []
+            if not record.get("identity_verified", True):
+                review = self.state / "review" / key
+                save(review / "submission.txt", b"")
+                save(review / "status.json", {"revision": record["revision"],
+                     "reasons": ["IDENTITY_LOOKUP_INCOMPLETE"], "replacements": 0,
+                     "text_digest": digest(b"")})
+                held += 1
+                continue
             for index, sub in enumerate(select_submissions(record["entity"], self.config["attempt_policy"]), 1):
                 comment = sub.get("Comment") or {}
                 if comment.get("Html"):
@@ -520,6 +535,7 @@ class Pipeline:
         return {"released": released, "held": held}
 
     def release(self, record, text, mode):
+        require(record.get("identity_verified", True), "IDENTITY_LOOKUP_INCOMPLETE")
         key = record["key"]
         require(KEY_RE.fullmatch(key) and text.strip(), "INVALID_RELEASE")
         text, _ = self.redactor(record).clean(text)
@@ -616,8 +632,23 @@ class Pipeline:
         records = self.records()
         released = sum((self.released / r["key"] / "packet.json").exists() for r in records)
         results = sum((self.results / r["key"] / "result.json").exists() for r in records)
+        reasons = {}
+        for record in records:
+            if (self.released / record["key"] / "packet.json").exists():
+                continue
+            review = self.state / "review" / record["key"] / "status.json"
+            if review.exists():
+                status = read_json(review)
+                if status.get("revision") == record["revision"]:
+                    for reason in status.get("reasons", []):
+                        # Fixed extractor codes only; never echo arbitrary stored text.
+                        if reason in {"IDENTITY_LOOKUP_INCOMPLETE", "VISUAL_REVIEW_REQUIRED",
+                                      "OCR_REVIEW_REQUIRED", "NO_GRADABLE_TEXT", "UNSUPPORTED_FORMAT",
+                                      "DOCUMENT_REVIEW_REQUIRED", "EMPTY_EXTRACTION", "EXTRACTION_FAILED",
+                                      "FILE_TOO_LARGE", "UNREADABLE_PDF", "UNREADABLE_TEXT", "UNSUPPORTED_XML"}:
+                            reasons[reason] = reasons.get(reason, 0) + 1
         return {"downloaded": len(records), "released": released, "held": len(records) - released,
-                "result_files": results}
+                "result_files": results, "hold_reasons": reasons}
 
     def feedback_path(self, record):
         return self.base(record["section"]) + "/feedback/user/" + identifier(record["user_id"])
