@@ -14,6 +14,8 @@ For a configured Brightspace assignment, the coordinator runs download and prepa
 
 Each student gets rubric scores, a reason for every deduction, and specific suggestions for the next lab. When a submission reveals a conceptual misunderstanding, feedback includes a short explanation, worked example, practice check, and a verified notes reference by day and section. The instructor reviews the results before release.
 
+Every worker receives the same versioned instruction package, including calibration decisions. Each deduction is checked against the requirement, evidence, point level, and possible double counting. New or materially revised grading instructions use a small instructor/TA-approved calibration pilot; an explicit instructor deferral is honored for that run.
+
 ## Prepare submissions and return feedback
 
 The optional [local pipeline](PIPELINE.md) downloads Brightspace submissions privately, assigns stable course IDs, removes known identifiers, prepares agent-readable text, exports TA review packages, and returns both scores and full feedback. Supported text releases automatically; visual/unsupported work is held for local review. It reduces identifying information but does not guarantee anonymity or create an OS sandbox.
